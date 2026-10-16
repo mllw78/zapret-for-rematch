@@ -73,7 +73,7 @@ start "zapret: probe" /min "%~dp0bin\winws.exe" --wf-raw=false --filter-udp=9 --
 "%SYN%\tasklist.exe" /FI "IMAGENAME eq winws.exe" | "%SYN%\find.exe" /i "winws.exe" >nul
 if "%errorlevel%"=="0" (
     set "PROBE_OK=1"
-    "%SYN%\taskkill.exe" /IM winws.exe >nul 2>&1
+    "%SYN%\taskkill.exe" /IM winws.exe /F >nul 2>&1
     "%SYN%\ping.exe" -n 3 127.0.0.1 >nul
 )
 exit /b
