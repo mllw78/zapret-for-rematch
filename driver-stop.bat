@@ -1,4 +1,5 @@
 @echo off
+setlocal enabledelayedexpansion
 chcp 65001 > nul
 
 set "SYN=%SystemRoot%\System32"
@@ -12,68 +13,68 @@ if not "%errorlevel%"=="0" (
 cd /d "%~dp0"
 
 echo Останавливаю обход...
-"%SYN%\taskkill.exe" /IM winws.exe >nul 2>&1
-set /a waitgrace=0
-:wait_loop
-"%SYN%\ping.exe" -n 2 127.0.0.1 >nul
-"%SYN%\tasklist.exe" /FI "IMAGENAME eq winws.exe" | "%SYN%\find.exe" /i "winws.exe" >nul
-if not "%errorlevel%"=="0" goto stopped
-set /a waitgrace+=1
-if %waitgrace% LSS 12 goto wait_loop
-echo Процесс не закрылся штатно - закрываем принудительно.
-"%SYN%\taskkill.exe" /IM winws.exe /F >nul 2>&1
-"%SYN%\ping.exe" -n 3 127.0.0.1 >nul
-:stopped
+call :close_winws
 echo Обход остановлен.
 echo:
 
-echo Проверяю драйвер WinDivert...
-set /a tries=0
-:test_round
-set /a tries+=1
-call :probe
-if "%PROBE_OK%"=="1" (
-    echo Драйвер свободен, перезагрузка не нужна.
-    goto end
-)
-if %tries% LSS 3 (
-    "%SYN%\ping.exe" -n 5 127.0.0.1 >nul
-    goto test_round
-)
+echo Останавливаю службу драйвера WinDivert...
+"%SYN%\sc.exe" query WinDivert >nul 2>&1
+if not "%errorlevel%"=="0" goto cleanup_other
+"%SYN%\net.exe" stop WinDivert /y >nul 2>&1
+set /a sw=0
+:stop_wait
+"%SYN%\ping.exe" -n 2 127.0.0.1 >nul
+"%SYN%\sc.exe" query WinDivert | "%SYN%\findstr.exe" /i "STOPPED" >nul
+if "%errorlevel%"=="0" goto drvstoped
+set /a sw+=1
+if %sw% LSS 8 goto stop_wait
 
+:stuck
+echo Служба не остановилась. Ищу другие сервисы, которые держат драйвер...
+call :kill_conflict GoodbyeDPI
+call :kill_conflict zapret
+call :kill_conflict discryptor
+"%SYN%\net.exe" stop WinDivert /y >nul 2>&1
+set /a sw2=0
+:stop_wait2
+"%SYN%\ping.exe" -n 2 127.0.0.1 >nul
+"%SYN%\sc.exe" query WinDivert | "%SYN%\findstr.exe" /i "STOPPED" >nul
+if "%errorlevel%"=="0" goto drvstoped
+set /a sw2+=1
+if %sw2% LSS 5 goto stop_wait2
+echo Удаляю службу, при следующем запуске Rematch.bat драйвер поднимется сам.
+"%SYN%\sc.exe" delete WinDivert >nul 2>&1
+echo Если Rematch.bat после этого не поднимется - нужен перезапуск компьютера.
+goto cleanup_other
+
+:drvstoped
+echo Драйвер WinDivert остановлен.
+
+:cleanup_other
+"%SYN%\net.exe" stop WinDivert14 >nul 2>&1
+"%SYN%\sc.exe" delete WinDivert14 >nul 2>&1
 echo:
-echo Драйвер завис. Перезапускаю службу базовой фильтрации (BFE)...
-"%SYN%\net.exe" stop BFE >nul 2>&1
-"%SYN%\ping.exe" -n 4 127.0.0.1 >nul
-"%SYN%\net.exe" start BFE >nul 2>&1
-"%SYN%\ping.exe" -n 6 127.0.0.1 >nul
-set /a tries=0
-:test_round2
-set /a tries+=1
-call :probe
-if "%PROBE_OK%"=="1" (
-    echo Драйвер свободен, перезагрузка не нужна.
-    goto end
-)
-if %tries% LSS 3 (
-    "%SYN%\ping.exe" -n 6 127.0.0.1 >nul
-    goto test_round2
-)
-echo Драйвер не снимается - нужен перезапуск компьютера.
+echo Готово.
 
 :end
-echo:
 pause
 exit /b
 
-:probe
-set "PROBE_OK=0"
-start "zapret: probe" /min "%~dp0bin\winws.exe" --wf-raw=false --filter-udp=9 --dpi-desync=fake --dpi-desync-cutoff=n1
-"%SYN%\ping.exe" -n 5 127.0.0.1 >nul
+:close_winws
 "%SYN%\tasklist.exe" /FI "IMAGENAME eq winws.exe" | "%SYN%\find.exe" /i "winws.exe" >nul
-if "%errorlevel%"=="0" (
-    set "PROBE_OK=1"
-    "%SYN%\taskkill.exe" /IM winws.exe /F >nul 2>&1
-    "%SYN%\ping.exe" -n 3 127.0.0.1 >nul
-)
+if not "%errorlevel%"=="0" exit /b
+"%SYN%\taskkill.exe" /IM winws.exe >nul 2>&1
+"%SYN%\ping.exe" -n 4 127.0.0.1 >nul
+"%SYN%\tasklist.exe" /FI "IMAGENAME eq winws.exe" | "%SYN%\find.exe" /i "winws.exe" >nul
+if not "%errorlevel%"=="0" exit /b
+"%SYN%\taskkill.exe" /IM winws.exe /F >nul 2>&1
+"%SYN%\ping.exe" -n 2 127.0.0.1 >nul
+exit /b
+
+:kill_conflict
+"%SYN%\sc.exe" query %~1 >nul 2>&1
+if not "%errorlevel%"=="0" exit /b
+"%SYN%\net.exe" stop %~1 /y >nul 2>&1
+"%SYN%\sc.exe" delete %~1 >nul 2>&1
+echo Найден и закрыт конфликтующий сервис: %~1
 exit /b
