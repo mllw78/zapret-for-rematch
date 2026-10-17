@@ -13,8 +13,8 @@ cd /d "%~dp0"
 
 "%SYN%\tasklist.exe" /FI "IMAGENAME eq winws.exe" | "%SYN%\find.exe" /i "winws.exe" >nul
 if not "%errorlevel%"=="0" goto no_old
-echo Уже работает один или несколько обходов. Новый не запускаю.
-echo Запусти Rematch-stop.bat
+echo Уже работает один или несколько обходов. Новый не запустится.
+echo Запусти driver-stop.bat
 echo и потом запусти этот батник снова.
 pause
 exit /b
@@ -25,16 +25,30 @@ if not "%errorlevel%"=="0" goto drv_skip
 "%SYN%\sc.exe" config WinDivert binPath= "\"%~dp0bin\WinDivert64.sys\"" >nul 2>&1
 :drv_skip
 
+call :launch
+if "%STARTED%"=="1" goto ok
+echo Драйвер ещё не освободился после остановки - пробую ещё раз.
+"%SYN%\ping.exe" -n 6 127.0.0.1 >nul
+call :launch
+if "%STARTED%"=="1" goto ok
+echo Обход НЕ запустился.
+echo запусти driver-stop.bat: он снимет обход и службу драйвера.
+goto end
+
+:ok
+echo Обход запущен.
+echo Чтобы закрыть обход - закрой окно zapret.
+echo Чтобы полностью закрыть драйвер запусти driver-stop.bat.
+
+:end
+pause
+exit /b
+
+:launch
+set "STARTED=0"
 start "zapret: Rematch" /min "%~dp0bin\winws.exe" --wf-udp=1024-65535 ^
 --filter-udp=1024-65535 --ipset-exclude="%~dp0lists\ipset-exclude.txt" --dpi-desync=fake --dpi-desync-any-protocol=1 --dpi-desync-cutoff=n4 --dpi-desync-ttl=4 --dpi-desync-repeats=10 --dpi-desync-fake-unknown-udp="%~dp0bin\stun.bin" --dpi-desync-fake-stun="%~dp0bin\stun.bin"
-
 "%SYN%\ping.exe" -n 5 127.0.0.1 >nul
 "%SYN%\tasklist.exe" /FI "IMAGENAME eq winws.exe" | "%SYN%\find.exe" /i "winws.exe" >nul
-if "%errorlevel%"=="0" (
-    echo Обход запущен.
-    echo Чтобы полностью закрыть драйвер запусти Rematch-stop.bat
-) else (
-    echo Обход НЕ запустился. Скорее всего это зависший WinDivert -
-    echo запусти Rematch-stop.bat: он перезапустит службу фильтрации, чтобы тебе не перезагружать полностью ПК.
-)
-pause
+if "%errorlevel%"=="0" set "STARTED=1"
+exit /b
